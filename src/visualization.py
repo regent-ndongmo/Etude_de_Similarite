@@ -1,4 +1,4 @@
-"""Génération des visualisations : heatmap de similarité et graphe d'évolution temporelle."""
+"""Chart generation: similarity heatmaps and temporal evolution graphs."""
 
 import os
 import numpy as np
@@ -10,14 +10,21 @@ import matplotlib.ticker as mticker
 from matplotlib.lines import Line2D
 
 
+# Colour palette for themes (up to ~10 distinct themes)
+_THEME_COLORS = [
+    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+]
+
+
 # --------------------------------------------------------------------------- #
-#  Heatmap de similarité ordonnée par clusters                                #
+#  Overall similarity heatmap ordered by clusters                             #
 # --------------------------------------------------------------------------- #
 
 def plot_heatmap(df: pd.DataFrame, overall: np.ndarray, outdir: str) -> None:
     """
-    Génère la heatmap de similarité globale, ordonnée par cluster.
-    Sauvegarde dans <outdir>/heatmap_similarite_clusters.png
+    Saves heatmap of overall similarity, ordered by cluster.
+    Output: <outdir>/heatmap_similarity_clusters.png
     """
     order = (
         df.assign(avg_similarity=np.round(overall.mean(axis=1), 6))
@@ -30,10 +37,9 @@ def plot_heatmap(df: pd.DataFrame, overall: np.ndarray, outdir: str) -> None:
 
     fig, ax = plt.subplots(figsize=(12, 10))
     im = ax.imshow(ordered, aspect='auto', vmin=0, vmax=1, cmap='viridis')
-    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Similarité (0–1)')
-    ax.set_title("Heatmap de similarité (ordonnée par clusters)", fontsize=13, pad=12)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label='Similarity score (0–1)')
+    ax.set_title("Overall Similarity Heatmap (ordered by cluster)", fontsize=13, pad=12)
 
-    # Séparateurs de clusters
     last = None
     for idx, cid in enumerate(ordered_clusters):
         if last is not None and cid != last:
@@ -48,33 +54,25 @@ def plot_heatmap(df: pd.DataFrame, overall: np.ndarray, outdir: str) -> None:
     ax.set_xticklabels(tick_lbl, rotation=90, fontsize=7)
     ax.set_yticks(tick_pos)
     ax.set_yticklabels(tick_lbl, fontsize=7)
-    ax.set_xlabel("ID des études")
-    ax.set_ylabel("ID des études")
+    ax.set_xlabel("Study ID")
+    ax.set_ylabel("Study ID")
 
     fig.tight_layout()
-    fig.savefig(os.path.join(outdir, 'heatmap_similarite_clusters.png'), dpi=220)
+    fig.savefig(os.path.join(outdir, 'heatmap_similarity_clusters.png'), dpi=220)
     plt.close(fig)
 
 
 # --------------------------------------------------------------------------- #
-#  Graphe d'évolution temporelle                                              #
+#  Temporal evolution graph                                                   #
 # --------------------------------------------------------------------------- #
-
-# Palette de couleurs pour les thèmes (max ~10 thèmes distincts)
-_THEME_COLORS = [
-    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
-]
-
 
 def plot_temporal_evolution(df: pd.DataFrame, outdir: str) -> None:
     """
-    Génère deux graphiques d'évolution temporelle dans un seul fichier PNG :
+    Saves a two-panel chart:
+      Panel 1 – Stacked bar chart: publications per year, coloured by theme.
+      Panel 2 – Line curve: number of publications per year (NOT cumulative).
 
-    1. Barres empilées : nombre d'études publiées par année, colorié par thème.
-    2. Courbe cumulée : nombre cumulé d'études dans le corpus au fil du temps.
-
-    Sauvegarde dans <outdir>/evolution_temporelle.png
+    Output: <outdir>/temporal_evolution.png
     """
     df_dated = df.dropna(subset=['year']).copy()
     df_dated['year'] = df_dated['year'].astype(int)
@@ -82,24 +80,22 @@ def plot_temporal_evolution(df: pd.DataFrame, outdir: str) -> None:
     if df_dated.empty:
         return
 
-    years_range = range(df_dated['year'].min(), df_dated['year'].max() + 1)
+    years_range = list(range(df_dated['year'].min(), df_dated['year'].max() + 1))
     themes = sorted(df_dated['theme'].unique())
     color_map = {t: _THEME_COLORS[i % len(_THEME_COLORS)] for i, t in enumerate(themes)}
 
-    # --- tableau pivot : années × thèmes ---
+    # Pivot table: year × theme
     pivot = (
         df_dated.groupby(['year', 'theme'])
         .size()
         .unstack(fill_value=0)
-        .reindex(index=list(years_range), fill_value=0)
+        .reindex(index=years_range, fill_value=0)
     )
-
     counts_per_year = pivot.sum(axis=1)
-    cumulative = counts_per_year.cumsum()
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 10), gridspec_kw={'hspace': 0.45})
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(13, 10), gridspec_kw={'hspace': 0.5})
 
-    # --- Graphe 1 : barres empilées ---
+    # --- Panel 1: stacked bars by theme ---
     bottom = np.zeros(len(pivot))
     for theme in pivot.columns:
         color = color_map.get(theme, '#999999')
@@ -107,76 +103,68 @@ def plot_temporal_evolution(df: pd.DataFrame, outdir: str) -> None:
                 label=_shorten(theme, 55), width=0.7)
         bottom += pivot[theme].values
 
-    ax1.set_title("Nombre d'études publiées par année (par thème)", fontsize=12, pad=10)
-    ax1.set_xlabel("Année de publication")
-    ax1.set_ylabel("Nombre d'études")
+    ax1.set_title("Number of Publications per Year by Theme", fontsize=12, pad=10)
+    ax1.set_xlabel("Publication year")
+    ax1.set_ylabel("Number of studies")
     ax1.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
-    ax1.set_xticks(list(years_range))
-    ax1.set_xticklabels(list(years_range), rotation=45, ha='right', fontsize=8)
+    ax1.set_xticks(years_range)
+    ax1.set_xticklabels(years_range, rotation=45, ha='right', fontsize=8)
 
-    # Légende compacte hors du graphe
     legend_handles = [
         Line2D([0], [0], color=color_map[t], linewidth=6, label=_shorten(t, 55))
         for t in pivot.columns
     ]
     ax1.legend(
         handles=legend_handles,
-        loc='upper left', fontsize=7,
-        framealpha=0.85, ncol=1,
-        bbox_to_anchor=(1.01, 1), borderaxespad=0
+        fontsize=7, framealpha=0.85, ncol=1,
+        bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0,
     )
-
-    # Annotation du total par barre
     for yr, total in counts_per_year.items():
         if total > 0:
             ax1.text(yr, total + 0.05, str(int(total)),
                      ha='center', va='bottom', fontsize=7, color='#333333')
 
-    # --- Graphe 2 : courbe cumulée ---
-    ax2.plot(cumulative.index, cumulative.values, color='#1f77b4',
-             marker='o', markersize=5, linewidth=2, label='Cumul études')
-    ax2.fill_between(cumulative.index, cumulative.values, alpha=0.15, color='#1f77b4')
+    # --- Panel 2: line curve — publications per year (not cumulative) ---
+    ax2.plot(counts_per_year.index, counts_per_year.values,
+             color='#d62728', marker='o', markersize=6, linewidth=2.2,
+             label='Publications per year')
+    ax2.fill_between(counts_per_year.index, counts_per_year.values,
+                     alpha=0.12, color='#d62728')
 
-    ax2.set_title("Évolution cumulée du corpus d'études", fontsize=12, pad=10)
-    ax2.set_xlabel("Année de publication")
-    ax2.set_ylabel("Nombre cumulé d'études")
+    ax2.set_title("Annual Number of Publications", fontsize=12, pad=10)
+    ax2.set_xlabel("Publication year")
+    ax2.set_ylabel("Number of publications")
     ax2.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
-    ax2.set_xticks(list(years_range))
-    ax2.set_xticklabels(list(years_range), rotation=45, ha='right', fontsize=8)
+    ax2.set_xticks(years_range)
+    ax2.set_xticklabels(years_range, rotation=45, ha='right', fontsize=8)
     ax2.grid(axis='y', linestyle='--', alpha=0.4)
+    ax2.set_ylim(bottom=0)
 
-    # Annotation valeur finale
-    last_yr = cumulative.index[-1]
-    last_val = int(cumulative.iloc[-1])
+    # Annotate peak year
+    peak_yr = counts_per_year.idxmax()
+    peak_val = int(counts_per_year.max())
     ax2.annotate(
-        f"Total : {last_val}",
-        xy=(last_yr, last_val),
-        xytext=(-30, 10), textcoords='offset points',
+        f"Peak: {peak_val} ({peak_yr})",
+        xy=(peak_yr, peak_val),
+        xytext=(15, 8), textcoords='offset points',
         arrowprops=dict(arrowstyle='->', color='#555555'),
-        fontsize=9, color='#1f77b4'
+        fontsize=9, color='#d62728',
     )
 
-    fig.savefig(
-        os.path.join(outdir, 'evolution_temporelle.png'),
-        dpi=200, bbox_inches='tight'
-    )
+    fig.savefig(os.path.join(outdir, 'temporal_evolution.png'), dpi=200, bbox_inches='tight')
     plt.close(fig)
 
 
 # --------------------------------------------------------------------------- #
-#  Heatmap dédiée : similarité résultats/recommandations                      #
+#  Results & Recommendations similarity heatmap                               #
 # --------------------------------------------------------------------------- #
 
 def plot_results_heatmap(df: pd.DataFrame, results_sim: np.ndarray, outdir: str) -> None:
     """
-    Heatmap de la similarité basée uniquement sur la colonne
-    'résultats_recommandations', ordonnée par cluster.
-    Sauvegarde dans <outdir>/heatmap_similarite_resultats.png
+    Heatmap of similarity based solely on the Results & Recommendations column.
+    Output: <outdir>/heatmap_similarity_results.png
     """
-    order = (
-        df.sort_values(['cluster_id', 'study_id'])
-          .index.to_list()
-    )
+    order = df.sort_values(['cluster_id', 'study_id']).index.to_list()
     ordered = results_sim[np.ix_(order, order)]
     ordered_ids = df.iloc[order]['study_id'].to_list()
     ordered_clusters = df.iloc[order]['cluster_id'].to_list()
@@ -184,10 +172,11 @@ def plot_results_heatmap(df: pd.DataFrame, results_sim: np.ndarray, outdir: str)
     fig, ax = plt.subplots(figsize=(12, 10))
     im = ax.imshow(ordered, aspect='auto', vmin=0, vmax=1, cmap='plasma')
     fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04,
-                 label='Similarité résultats (0–1)')
+                 label='Results similarity score (0–1)')
     ax.set_title(
-        "Heatmap de similarité — Résultats & Recommandations\n(vectorisation dédiée, ordonnée par clusters)",
-        fontsize=12, pad=12
+        "Results & Recommendations Similarity Heatmap\n"
+        "(dedicated vectorisation, ordered by cluster)",
+        fontsize=12, pad=12,
     )
 
     last = None
@@ -204,16 +193,16 @@ def plot_results_heatmap(df: pd.DataFrame, results_sim: np.ndarray, outdir: str)
     ax.set_xticklabels(tick_lbl, rotation=90, fontsize=7)
     ax.set_yticks(tick_pos)
     ax.set_yticklabels(tick_lbl, fontsize=7)
-    ax.set_xlabel("ID des études")
-    ax.set_ylabel("ID des études")
+    ax.set_xlabel("Study ID")
+    ax.set_ylabel("Study ID")
 
     fig.tight_layout()
-    fig.savefig(os.path.join(outdir, 'heatmap_similarite_resultats.png'), dpi=220)
+    fig.savefig(os.path.join(outdir, 'heatmap_similarity_results.png'), dpi=220)
     plt.close(fig)
 
 
 # --------------------------------------------------------------------------- #
-#  Utilitaire interne                                                         #
+#  Internal helper                                                            #
 # --------------------------------------------------------------------------- #
 
 def _shorten(text: str, maxlen: int) -> str:
